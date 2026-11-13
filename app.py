@@ -60,8 +60,6 @@ async def monitor_lucky_jet():
                 async for message in websocket:
                     try:
                         data = json.loads(message)
-                        # Analyse de la structure des données reçues du WebSocket
-                        # (Ajuste la clé selon le format exact renvoyé par le serveur si nécessaire)
                         if "multiplier" in data or "result" in data:
                             raw_val = data.get("multiplier") or data.get("result")
                             current_multiplier = float(raw_val)
@@ -70,7 +68,6 @@ async def monitor_lucky_jet():
                             logging.info(f"Résultat en direct : {current_multiplier}x ({color})")
 
                             if color == "purple" or color == "orange":
-                                # Cassure par un violet ou orange
                                 logging.info(f"Cassure détectée par un {color} ({current_multiplier}x). Réinitialisation.")
                                 consecutive_blues = 0
                                 alert_sent = False
@@ -79,16 +76,14 @@ async def monitor_lucky_jet():
                                 consecutive_blues += 1
                                 logging.info(f"Multiplicateur bleu détecté. Série en cours : {consecutive_blues}")
                                 
-                                # Condition : 2 bleus consécutifs
                                 if consecutive_blues >= 2 and not alert_sent:
                                     await send_telegram_alert(f"🚨 **ALERTE LUCKY JET**\n2 multiplicateurs bleus consécutifs détectés !\nDernier résultat : {current_multiplier}x")
                                     alert_sent = True
 
                     except json.JSONDecodeError:
-                        # Si le message n'est pas du JSON (ex: ping/pong), on ignore
                         pass
                     except Exception as inner_e:
-                        logging.error(ferrreur traitement message: {inner_e}")
+                        logging.error(f"Erreur traitement message: {inner_e}")
 
         except Exception as e:
             logging.error(f"Erreur de connexion WebSocket: {e}. Reconnexion dans 5 secondes...")

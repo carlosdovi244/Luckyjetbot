@@ -1,58 +1,90 @@
-import asyncio
-import json
 import os
-from aiohttp import web
-import websockets
+import asyncio
 import aiohttp
+import json
+import logging
+from aiohttp import web
 
-# Configuration WebSocket Lucky Jet
-WS_URL = "wss://ws.smartikowheel.com/websocket/services?master&domain=1wyvev.life&version=1.3.595"
-BOT_TOKEN = os.environ.get("BOT_TOKEN", "9109662984:AAE3N4vqzQTfl8ihHtpQIEZ-WHmzm3lMHmw")
-CHAT_ID = os.environ.get("CHAT_ID", "5348890650")
-TARGET_COUNT = 5
+# Configuration des logs
+logging.basicConfig(level=logging.INFO)
 
-async def send_telegram(message):
+# Récupération des identifiants Telegram
+BOT_TOKEN = os.getenv("BOT_TOKEN", "9109662984:AAE3N4vqzQTfl8ihHtpQIEZ-WHmzm3lMHmw")
+CHAT_ID = os.getenv("CHAT_ID", "5348890650")
+
+# Compteur pour suivre les multiplicateurs bleus consécutifs
+consecutive_blues = 0
+
+async def send_telegram_alert(message):
+    """Envoie une notification sur Telegram."""
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
-    payload = {"chat_id": CHAT_ID, "text": message, "parse_mode": "Markdown"}
-    async with aiohttp.ClientSession() as session:
-        try:
+    payload = {
+        "chat_id": CHAT_ID,
+        "text": message,
+        "parse_mode": "Markdown"
+    }
+    try:
+        async with aiohttp.ClientSession() as session:
             async with session.post(url, json=payload) as response:
                 if response.status == 200:
-                    print("Alerte Telegram envoyée avec succès !")
-        except Exception as e:
-            print(f"Erreur réseau Telegram : {e}")
+                    logging.info("Alerte Telegram envoyée avec succès !")
+                else:
+                    logging.error(f"Erreur d'envoi Telegram: {await response.text()}")
+    except Exception as e:
+        logging.error(f"Erreur connexion Telegram: {e}")
 
 async def monitor_lucky_jet():
+    """Se connecte au flux et surveille l'apparition de 2 bleus consécutifs."""
+    global consecutive_blues
+    url = "https://1win.win/luckyjet"  # Remplace par l'URL du websocket cible si nécessaire
+    
     while True:
         try:
-            print("Connexion au flux WebSocket Lucky Jet...")
-            async with websockets.connect(WS_URL) as websocket:
-                print("Connecté au flux 1win avec succès !")
-                async for message in websocket:
-                    try:
-                        data = json.loads(message)
-                        # Logique de traitement des multiplicateurs
-                    except json.JSONDecodeError:
-                        continue
+            logging.info("Connexion au flux en cours...")
+            async with aiohttp.ClientSession() as session:
+                # Simulation de l'écoute du flux ou connexion WebSocket
+                # Ici on simule la réception d'un multiplicateur pour l'exemple de test
+                await asyncio.sleep(5)
+                
+                # --- LOGIQUE DE TEST : 2 BLEUS CONSÉCUTIFS ---
+                # Un multiplicateur bleu est compris entre 1.0 et 1.99
+                # Pour le test, on va simuler un multiplicateur bleu reçu :
+                multiplier = 1.25  # (Exemple de test)
+                
+                if 1.0 <= multiplier < 2.0:
+                    consecutive_blues += 1
+                    logging.info(f"Multiplicateur bleu détecté : {multiplier} (Total consécutif : {consecutive_blues})")
+                    
+                    if consecutive_blues >= 2:
+                        await send_telegram_alert("🚨 **TEST RÉUSSI** : 2 multiplicateurs bleus consécutifs détectés !")
+                        consecutive_blues = 0  # Réinitialisation après l'alerte
+                else:
+                    consecutive_blues = 0  # Réinitialisation si ce n'est pas un bleu
+                    
         except Exception as e:
-            print(f"Connexion perdue ({e}). Nouvelle tentative dans 5 secondes...")
-            await asyncio.sleep(5)
+                    logging.error(f"Erreur dans la boucle de surveillance: {e}")
+                    await asyncio.sleep(10)
 
-async def handle_ping(request):
-    return web.Response(text="Bot Lucky Jet en ligne et actif 24h/24 !")
+# Serveur web minimal pour maintenir le service Render éveillé (évite le mode veille)
+async def handle(request):
+    return web.Response(text="Lucky Jet Bot is running!")
 
 async def start_web_server():
     app = web.Application()
-    app.router.add_get("/", handle_ping)
+    app.router.add_get("/", handle)
     runner = web.AppRunner(app)
     await runner.setup()
-    port = int(os.environ.get("PORT", 10000))
+    port = int(os.getenv("PORT", 10000))
     site = web.TCPSite(runner, "0.0.0.0", port)
     await site.start()
-    print(f"Mini-serveur web HTTP démarré sur le port {port}.")
+    logging.info(f"Serveur web de maintien en ligne actif sur le port {port}")
 
 async def main():
-    await asyncio.gather(start_web_server(), monitor_lucky_jet())
+    # Lance le serveur web et le moniteur en même temps
+    await asyncio.gather(
+        start_web_server(),
+        monitor_lucky_jet()
+    )
 
 if __name__ == "__main__":
     asyncio.run(main())

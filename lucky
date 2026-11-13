@@ -1,0 +1,93 @@
+import asyncio
+import json
+import os
+from aiohttp import web
+import websockets
+import aiohttp
+
+# Configuration (Remplis tes identifiants ici ou via les variables d'environnement Render)
+WS_URL = "wss://ws.smartikowheel.com/websocket/services?master&domain=1wyvev.life&version=1.3.595"
+BOT_TOKEN = "9109662984:AAE3N4vqzQTfl8ihHtpQIEZ-WHmzm3lMHmw"
+CHAT_ID = "5348890650"
+TARGET_COUNT = 5
+
+consecutive_losses = 0
+in_break_state = False
+last_result_seen = "Aucun"
+
+# 1. Fonction d'envoi Telegram
+async def send_telegram(message):
+    if "TON_BOT_TOKEN" in BOT_TOKEN:
+        print("Erreur : Token Telegram non configuré !")
+        return
+    url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
+    payload = {"chat_id": CHAT_ID, "text": message, "parse_mode": "Markdown"}
+    async with aiohttp.ClientSession() as session:
+        try:
+            async with session.post(url, json=payload) as response:
+                if response.status == 200:
+                    print("Alerte Telegram envoyée avec succès !")
+                else:
+                    print(f"Erreur Telegram code {response.status}")
+        except Exception as e:
+            print(f"Erreur réseau Telegram : {e}")
+
+# 2. Logique de surveillance du WebSocket Lucky Jet
+async def monitor_lucky_jet():
+    global consecutive_losses, in_break_state, last_result_seen
+    
+    while True:
+        try:
+            print("Connexion au flux WebSocket Lucky Jet...")
+            async with websockets.connect(WS_URL) as websocket:
+                print("Connecté au flux 1win avec succès ! Surveillance active 24h/24...")
+                
+                async for message in websocket:
+                    try:
+                        data = json.loads(message)
+                        
+                        # --- ICI SE PLACE LA LOGIQUE DE TRAITEMENT DES MULTIPLICATEURS ---
+                        # Dès que tu reçois un nouveau tour et que tu détectes une perte :
+                        # consecutive_losses += 1
+                        
+                        # Exemple d'alerte si le seuil est atteint :
+                        if consecutive_losses >= TARGET_COUNT:
+                            await send_telegram(f"🚨 *ALERTE LUCKY JET (Serveur Cloud)* 🚨\n\n{TARGET_COUNT} séquences de pertes consécutives validées !")
+                            consecutive_losses = 0
+                            in_break_state = False
+                            
+                    except json.JSONDecodeError:
+                        continue # Ignore les messages non-JSON
+                        
+        except (websockets.exceptions.ConnectionClosed, socket.gaierror) as e:
+            print(f"Connexion perdue ({e}). Nouvelle tentative dans 5 secondes...")
+            await asyncio.sleep(5)
+        except Exception as e:
+            print(f"Erreur inattendue : {e}. Nouvelle tentative dans 5 secondes...")
+            await asyncio.sleep(5)
+
+# 3. Mini-serveur web HTTP (pour empêcher Render de mettre l'application en veille)
+async def handle_ping(request):
+    return web.Response(text="Bot Lucky Jet en ligne et actif 24h/24 !")
+
+async def start_web_server():
+    app = web.Application()
+    app.router.add_get("/", handle_ping)
+    runner = web.AppRunner(app)
+    await runner.setup()
+    
+    # Render attribue un port automatique via la variable d'environnement PORT
+    port = int(os.environ.get("PORT", 10000))
+    site = web.TCPSite(runner, "0.0.0.0", port)
+    await site.start()
+    print(f"Mini-serveur web HTTP démarré sur le port {port} (garde Render éveillé).")
+
+# 4. Lancement simultané du serveur web et de la surveillance WebSocket
+async def main():
+    await asyncio.gather(
+        start_web_server(),
+        monitor_lucky_jet()
+    )
+
+if __name__ == "__main__":
+    asyncio.run(main())

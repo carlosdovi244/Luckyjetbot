@@ -16,7 +16,7 @@ CHAT_ID = os.getenv("CHAT_ID", "5348890650")
 # URL du WebSocket du jeu
 WS_URL = "wss://ws.smartikowheel.com/websocket/services?master&domain=1wyvev.life&version=1.3.595"
 
-# États du bot pour la logique des séries
+# États du bot
 consecutive_blues = 0
 alert_sent = False
 
@@ -38,60 +38,74 @@ async def send_telegram_alert(message):
     except Exception as e:
         logging.error(f"Erreur connexion Telegram: {e}")
 
-def classify_multiplier(val):
-    """Classe le multiplicateur : bleu (<2.0), violet (2.0 à 9.99), orange (>=10.0)."""
-    if val < 2.0:
-        return "blue"
-    elif val < 10.0:
-        return "purple"
-    else:
-        return "orange"
-
 async def monitor_lucky_jet():
-    """Se connecte au WebSocket en temps réel et analyse les multiplicateurs."""
+    """Se connecte au WebSocket et écoute les résultats."""
     global consecutive_blues, alert_sent
     
     while True:
         try:
-            logging.info("Connexion au WebSocket Lucky Jet...")
+            logging.info("Tentative de connexion au WebSocket...")
             async with websockets.connect(WS_URL) as websocket:
-                logging.info("Connecté avec succès au flux en direct !")
+                logging.info("Connecté au WebSocket avec succès !")
                 
                 async for message in websocket:
                     try:
+                        # Affichage brut pour analyser le format dans les logs Render
+                        logging.info(f"Message brut reçu : {message}")
+                        
+                        # Parsing du message JSON
                         data = json.loads(message)
-                        if "multiplier" in data or "result" in data:
-                            raw_val = data.get("multiplier") or data.get("result")
-                            current_multiplier = float(raw_val)
-                            color = classify_multiplier(current_multiplier)
-                            
-                            logging.info(f"Résultat en direct : {current_multiplier}x ({color})")
+                        
+                        # Recherche d'une valeur numérique représentant le multiplicateur dans le message
+                        # (On parcourt les clés courantes ou les structures possibles)
+                        val = None
+                        if isinstance(data, dict):
+                            # Cherche des clés communes ou extrait la première valeur numérique trouvée
+                            for key in ["multiplier", "result", "val", "coef", "p"]:
+                                if key in data:
+                                    val = data[key]
+                                    break
+                            if val is None and len(data) > 0:
+                                # Essaye de récupérer la première valeur si c'est un dictionnaire de données de jeu
+                                for v in data.values():
+                                    if isinstance(v, (int, float)):
+                                        val = v
+                                        break
+                                    elif isinstance(v, str) and v.replace('.', '', 1).isdigit():
+                                        val = float(v)
+                                        break
 
-                            if color == "purple" or color == "orange":
-                                logging.info(f"Cassure détectée par un {color} ({current_multiplier}x). Réinitialisation.")
+                        if val is not None:
+                            multiplier = float(val)
+                            
+                            # Application de ta règle : Bleu entre 1.00 et 1.99
+                            if 1.00 <= multiplier <= 1.99:
+                                if not alert_sent:
+                                    consecutive_blues += 1
+                                    logging.info(f"-> Bleu détecté : {multiplier}x | Compteur consécutif : {consecutive_blues}")
+                                    
+                                    if consecutive_blues >= 2:
+                                        await send_telegram_alert(f"🚨 **ALERTE LUCKY JET**\n2 multiplicateurs bleus consécutifs détectés (entre 1.00 et 1.99) !\nDernier : {multiplier}x")
+                                        alert_sent = True
+                            elif multiplier >= 2.00:
+                                # Cassure par un violet ou orange
+                                logging.info(f"-> Cassure détectée par {multiplier}x. Remise à zéro du compteur.")
                                 consecutive_blues = 0
                                 alert_sent = False
 
-                            elif color == "blue":
-                                consecutive_blues += 1
-                                logging.info(f"Multiplicateur bleu détecté. Série en cours : {consecutive_blues}")
-                                
-                                if consecutive_blues >= 2 and not alert_sent:
-                                    await send_telegram_alert(f"🚨 **ALERTE LUCKY JET**\n2 multiplicateurs bleus consécutifs détectés !\nDernier résultat : {current_multiplier}x")
-                                    alert_sent = True
-
                     except json.JSONDecodeError:
+                        # Ce n'est pas du JSON (ex: messages de ping du serveur), on ignore
                         pass
                     except Exception as inner_e:
-                        logging.error(f"Erreur traitement message: {inner_e}")
+                        logging.error(f"Erreur de traitement d'un message: {inner_e}")
 
         except Exception as e:
-            logging.error(f"Erreur de connexion WebSocket: {e}. Reconnexion dans 5 secondes...")
-            await asyncio.sleep(5)
+                    logging.error(f"Erreur de connexion WebSocket: {e}. Nouvelle tentative dans 5 secondes...")
+                    await asyncio.sleep(5)
 
 # Serveur web minimal pour maintenir Render éveillé
 async def handle(request):
-    return web.Response(text="Lucky Jet Bot WebSocket is running!")
+    return web.Response(text="Lucky Jet Bot is running!")
 
 async def start_web_server():
     app = web.Application()

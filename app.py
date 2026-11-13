@@ -1,7 +1,9 @@
 import os
 import asyncio
 import aiohttp
+import json
 import logging
+import websockets
 from aiohttp import web
 
 # Configuration des logs
@@ -11,9 +13,11 @@ logging.basicConfig(level=logging.INFO)
 BOT_TOKEN = os.getenv("BOT_TOKEN", "9109662984:AAE3N4vqzQTfl8ihHtpQIEZ-WHmzm3lMHmw")
 CHAT_ID = os.getenv("CHAT_ID", "5348890650")
 
+# URL du WebSocket du jeu
+WS_URL = "wss://ws.smartikowheel.com/websocket/services?master&domain=1wyvev.life&version=1.3.595"
+
 # États du bot pour la logique des séries
 consecutive_blues = 0
-waiting_for_violet_series = True
 alert_sent = False
 
 async def send_telegram_alert(message):
@@ -44,43 +48,55 @@ def classify_multiplier(val):
         return "orange"
 
 async def monitor_lucky_jet():
-    """Surveille les multiplicateurs selon la logique des séries de violets et de bleus."""
-    global consecutive_blues, waiting_for_violet_series, alert_sent
+    """Se connecte au WebSocket en temps réel et analyse les multiplicateurs."""
+    global consecutive_blues, alert_sent
     
     while True:
         try:
-            async with aiohttp.ClientSession() as session:
-                await asyncio.sleep(5) # Intervalle de vérification
+            logging.info("Connexion au WebSocket Lucky Jet...")
+            async with websockets.connect(WS_URL) as websocket:
+                logging.info("Connecté avec succès au flux en direct !")
                 
-                # --- Simulation ou récupération du dernier multiplicateur du jeu ---
-                current_multiplier = 1.35  
-                color = classify_multiplier(current_multiplier)
-                
-                logging.info(f"Résultat reçu : {current_multiplier}x ({color})")
+                async for message in websocket:
+                    try:
+                        data = json.loads(message)
+                        # Analyse de la structure des données reçues du WebSocket
+                        # (Ajuste la clé selon le format exact renvoyé par le serveur si nécessaire)
+                        if "multiplier" in data or "result" in data:
+                            raw_val = data.get("multiplier") or data.get("result")
+                            current_multiplier = float(raw_val)
+                            color = classify_multiplier(current_multiplier)
+                            
+                            logging.info(f"Résultat en direct : {current_multiplier}x ({color})")
 
-                if color == "purple" or color == "orange":
-                    # Cassure par un violet ou orange
-                    logging.info(f"Cassure par un {color} ({current_multiplier}x).")
-                    waiting_for_violet_series = False
-                    consecutive_blues = 0
-                    alert_sent = False
+                            if color == "purple" or color == "orange":
+                                # Cassure par un violet ou orange
+                                logging.info(f"Cassure détectée par un {color} ({current_multiplier}x). Réinitialisation.")
+                                consecutive_blues = 0
+                                alert_sent = False
 
-                elif color == "blue":
-                    consecutive_blues += 1
-                    logging.info(f"Multiplicateur bleu détecté. Série en cours : {consecutive_blues}")
-                    
-                    # Condition : 2 bleus consécutifs
-                    if consecutive_blues >= 2 and not alert_sent:
-                        await send_telegram_alert(f"🚨 **ALERTE LUCKY JET**\n2 multiplicateurs bleus consécutifs détectés !\nDernier résultat : {current_multiplier}x")
-                        alert_sent = True
+                            elif color == "blue":
+                                consecutive_blues += 1
+                                logging.info(f"Multiplicateur bleu détecté. Série en cours : {consecutive_blues}")
+                                
+                                # Condition : 2 bleus consécutifs
+                                if consecutive_blues >= 2 and not alert_sent:
+                                    await send_telegram_alert(f"🚨 **ALERTE LUCKY JET**\n2 multiplicateurs bleus consécutifs détectés !\nDernier résultat : {current_multiplier}x")
+                                    alert_sent = True
+
+                    except json.JSONDecodeError:
+                        # Si le message n'est pas du JSON (ex: ping/pong), on ignore
+                        pass
+                    except Exception as inner_e:
+                        logging.error(ferrreur traitement message: {inner_e}")
 
         except Exception as e:
-            logging.error(f"Erreur dans la boucle de surveillance : {e}")
-            await asyncio.sleep(10)
+            logging.error(f"Erreur de connexion WebSocket: {e}. Reconnexion dans 5 secondes...")
+            await asyncio.sleep(5)
 
 # Serveur web minimal pour maintenir Render éveillé
 async def handle(request):
-    return web.Response(text="Lucky Jet Bot is running!")
+    return web.Response(text="Lucky Jet Bot WebSocket is running!")
 
 async def start_web_server():
     app = web.Application()

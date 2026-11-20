@@ -14,7 +14,7 @@ logging.basicConfig(
 
 # ========== IDENTIFIANTS (à mettre dans Render) ==========
 BOT_TOKEN = os.getenv("9109662984:AAE3N4vqzQTfl8ihHtpQIEZ-WHmzm3lMHmw")
-CHAT_ID = os.getenv("-1004353800772")
+CHAT_ID = os.getenv("9109662984")
 
 # Vérification au démarrage
 if not BOT_TOKEN or not CHAT_ID:
